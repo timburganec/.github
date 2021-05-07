@@ -1,17 +1,63 @@
-name: Octo Organization CI
+name: Upday Test Pipeline
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ test-branch ]
-  pull_request:
-    branches: [ test-branch ]
+    branches: [ $default-branch ]
+
+env:
+  ACTION_REPO_SHORT_NAME: "upday-actions"
+  ACTION_REPO_FULL_NAME: "upday/upday-actions"
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    
+  build_and_test:
+    runs-on: amazon-test-runner
     steps:
-    - uses: actions/checkout@v2
-    
-    - name: Run a one-line script
-      run: echo Hello from Octo Organization
+    - name: Checkout repo
+      uses: actions/checkout@v2
+    - name: Clone Upday Actions Repo
+      uses: actions/checkout@v2
+      with:
+        repository: ${{ env.ACTION_REPO_FULL_NAME }}
+        path: ${{env.ACTION_REPO_SHORT_NAME}}
+        token: ${{ secrets.PAT_GIT }}
+    - name: Run build-params-to-env action
+      uses: "./upday-actions/build-params-to-env"
+  staging_deploy:
+    runs-on: amazon-runner
+    needs: [build_and_test]
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+    - name: Clone Upday Actions Repo
+      uses: actions/checkout@v2
+      with:
+        repository: ${{ env.ACTION_REPO_FULL_NAME }}
+        path: ${{env.ACTION_REPO_SHORT_NAME}}
+        token: ${{ secrets.PAT_GIT }}
+    - name: Run build-params-to-env action
+      uses: "./upday-actions/build-params-to-env"
+      env:
+        DEPLOYMENT_ENV: staging
+    - name: Set output variable for prod
+      id: branch_variable
+      run: echo "::set-output name=branch::${BRANCH_NAME}"
+    outputs:
+      deployment_branch: ${{ steps.branch_variable.outputs.branch }}
+  prod_review:
+    runs-on: amazon-runner
+    needs: [staging_deploy]
+    if: ${{ needs.staging_deploy.outputs.deployment_branch == $default-branch }}
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+    - name: Clone Upday Actions Repo
+      uses: actions/checkout@v2
+      with:
+        repository: ${{ env.ACTION_REPO_FULL_NAME }}
+        path: ${{env.ACTION_REPO_SHORT_NAME}}
+        token: ${{ secrets.PAT_GIT }}
+    - name: Run build-params-to-env action
+      uses: "./upday-actions/build-params-to-env"
+      env:
+        DEPLOYMENT_ENV: prod
